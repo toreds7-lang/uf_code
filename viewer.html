@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Repository Analyzer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+        #container { display: flex; height: 100vh; }
+
+        .panel {
+            overflow: auto;
+            border: 1px solid #ddd;
+            padding: 16px;
+        }
+
+        #left-panel {
+            width: 250px;
+            flex-shrink: 0;
+            background: #f8f9fa;
+        }
+
+        #center-panel {
+            flex: 1;
+            background: white;
+        }
+
+        #right-panel {
+            width: 350px;
+            flex-shrink: 0;
+            background: #fafbfc;
+        }
+
+        .tree-item {
+            padding: 4px 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin: 2px 0;
+            user-select: none;
+        }
+
+        .tree-item:hover {
+            background: #e8eaed;
+        }
+
+        .tree-item.active {
+            background: #4a90e2;
+            color: white;
+        }
+
+        .tree-item-indent { margin-left: 20px; }
+
+        .tree-item-toggle {
+            display: inline-block;
+            width: 16px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .tree-item-toggle.expanded::before { content: "▼ "; }
+        .tree-item-toggle.collapsed::before { content: "▶ "; }
+
+        .tree-item-checkmark {
+            display: inline-block;
+            width: 16px;
+            margin-right: 4px;
+        }
+
+        .tree-children { display: none; }
+        .tree-children.expanded { display: block; }
+
+        #graph-container {
+            width: 100%;
+            height: 100%;
+            background: white;
+        }
+
+        .node-detail {
+            line-height: 1.6;
+        }
+
+        .node-detail h3 { margin-top: 12px; margin-bottom: 8px; color: #333; }
+        .node-detail p { margin-bottom: 12px; color: #555; }
+        .node-detail pre {
+            background: #f4f4f4;
+            padding: 8px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.4;
+            margin: 8px 0;
+        }
+
+        .node-detail code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+        }
+
+        .chat-box {
+            margin-top: 20px;
+            border-top: 1px solid #ddd;
+            padding-top: 12px;
+        }
+
+        .chat-box input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .chat-box button {
+            background: #4a90e2;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .chat-box button:hover { background: #2563eb; }
+
+        .chat-response {
+            background: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 8px;
+            margin-top: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #333;
+        }
+
+        .repo-selector {
+            margin-bottom: 16px;
+        }
+
+        .repo-selector select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .button-group {
+            margin: 12px 0;
+            display: flex;
+            gap: 8px;
+        }
+
+        .button-group button {
+            flex: 1;
+            padding: 8px;
+            background: #4a90e2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .button-group button:hover { background: #2563eb; }
+
+        .loading { color: #888; font-style: italic; }
+
+        h2 { font-size: 16px; margin-bottom: 12px; color: #333; }
+        h3 { font-size: 14px; margin: 12px 0 8px 0; color: #444; }
+
+        .filters {
+            margin: 12px 0;
+            padding: 12px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .filters label {
+            display: block;
+            font-size: 12px;
+            margin: 4px 0;
+            cursor: pointer;
+        }
+
+        .filters input[type="checkbox"] {
+            margin-right: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div class="panel" id="left-panel">
+            <h2>Repository</h2>
+            <div class="repo-selector">
+                <select id="repo-select">
+                    <option value="">-- Select Repo --</option>
+                </select>
+            </div>
+
+            <div class="button-group">
+                <button onclick="summarizeAll()">Summarize All</button>
+            </div>
+
+            <h2>Structure</h2>
+            <div id="tree-container"></div>
+        </div>
+
+        <div class="panel" id="center-panel">
+            <h2 style="margin-bottom: 12px;">Knowledge Graph</h2>
+            <div class="filters">
+                <label><input type="checkbox" id="filter-contains" checked> Contains</label>
+                <label><input type="checkbox" id="filter-imports" checked> Imports</label>
+                <label><input type="checkbox" id="filter-calls" checked> Calls</label>
+                <label><input type="checkbox" id="filter-inherits" checked> Inherits</label>
+            </div>
+            <div id="graph-container"></div>
+        </div>
+
+        <div class="panel" id="right-panel">
+            <h2>Node Details</h2>
+            <div id="detail-pane">
+                <p class="loading">Select a node to view details</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentGraph = null;
+        let currentRepo = null;
+        let currentNodeId = null;
+        let visNetwork = null;
+        let visNodes = null;
+        let visEdges = null;
+
+        async function loadRepos() {
+            try {
+                const resp = await fetch("/api/repos");
+                const data = await resp.json();
+                const select = document.getElementById("repo-select");
+                data.repos.forEach(repo => {
+                    const opt = document.createElement("option");
+                    opt.value = repo;
+                    opt.textContent = repo;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.error("Failed to load repos:", e);
+            }
+        }
+
+        async function loadRepo(repoName) {
+            try {
+                const resp = await fetch(`/api/load-repo/${repoName}`, { method: "POST" });
+                if (!resp.ok) throw new Error("Failed to load repo");
+
+                currentRepo = repoName;
+
+                // Load graph, summary, highlights
+                const [graphResp, summaryResp, highlightsResp] = await Promise.all([
+                    fetch("/api/graph"),
+                    fetch("/api/summary"),
+                    fetch("/api/highlights")
+                ]);
+
+                currentGraph = await graphResp.json();
+                const summary = await summaryResp.json();
+                const highlights = await highlightsResp.json();
+
+                renderTree(summary.tree);
+                renderGraph(currentGraph);
+
+            } catch (e) {
+                console.error("Failed to load repo:", e);
+                alert("Failed to load repository: " + e.message);
+            }
+        }
+
+        function renderTree(node, container = null, depth = 0) {
+            if (!container) {
+                container = document.getElementById("tree-container");
+                container.innerHTML = "";
+            }
+
+            const div = document.createElement("div");
+            div.className = "tree-item";
+            if (depth > 0) div.className += " tree-item-indent";
+            div.style.marginLeft = (depth * 20) + "px";
+
+            const checkmark = document.createElement("span");
+            checkmark.className = "tree-item-checkmark";
+            checkmark.textContent = "✓";
+            checkmark.style.color = "#4a90e2";
+
+            const toggle = document.createElement("span");
+            toggle.className = "tree-item-toggle collapsed";
+
+            const label = document.createElement("span");
+            label.textContent = `${node.name} (${node.type})`;
+            label.style.cursor = "pointer";
+            label.onclick = (e) => {
+                e.stopPropagation();
+                selectNode(node.id);
+            };
+
+            div.appendChild(checkmark);
+            if (node.children && node.children.length > 0) {
+                div.appendChild(toggle);
+                toggle.onclick = (e) => {
+                    e.stopPropagation();
+                    const children = div.nextElementSibling;
+                    if (children && children.classList.contains("tree-children")) {
+                        children.classList.toggle("expanded");
+                        toggle.classList.toggle("expanded");
+                        toggle.classList.toggle("collapsed");
+                    }
+                };
+            }
+            div.appendChild(label);
+
+            container.appendChild(div);
+
+            if (node.children && node.children.length > 0) {
+                const childrenDiv = document.createElement("div");
+                childrenDiv.className = "tree-children";
+                container.appendChild(childrenDiv);
+
+                node.children.forEach(child => {
+                    renderTree(child, childrenDiv, depth + 1);
+                });
+            }
+        }
+
+        function renderGraph(graph) {
+            if (!visNetwork) {
+                visNodes = new vis.DataSet();
+                visEdges = new vis.DataSet();
+                const container = document.getElementById("graph-container");
+                const data = { nodes: visNodes, edges: visEdges };
+                const options = {
+                    physics: { enabled: true, barnesHut: { gravitationalConstant: -30000 } },
+                    nodes: { shape: "dot", font: { size: 12 } },
+                    edges: { font: { size: 10 }, arrows: { to: { enabled: true } } }
+                };
+                visNetwork = new vis.Network(container, data, options);
+                visNetwork.on("click", (params) => {
+                    if (params.nodes.length > 0) {
+                        selectNode(params.nodes[0]);
+                    }
+                });
+            }
+
+            const colorMap = {
+                repo: "#FFD700",
+                folder: "#4a90e2",
+                file: "#52C41A",
+                class: "#FF7A45",
+                function: "#999999"
+            };
+
+            visNodes.clear();
+            visEdges.clear();
+
+            graph.nodes.forEach(node => {
+                visNodes.add({
+                    id: node.id,
+                    label: node.name,
+                    color: colorMap[node.type] || "#999999",
+                    title: `${node.type}: ${node.name}`
+                });
+            });
+
+            const filters = {
+                contains: document.getElementById("filter-contains").checked,
+                imports: document.getElementById("filter-imports").checked,
+                calls: document.getElementById("filter-calls").checked,
+                inherits: document.getElementById("filter-inherits").checked
+            };
+
+            graph.edges.forEach(edge => {
+                if (filters[edge.rel]) {
+                    visEdges.add({
+                        from: edge.source,
+                        to: edge.target,
+                        label: edge.rel,
+                        title: edge.rel,
+                        color: edge.rel === "contains" ? "#ccc" :
+                               edge.rel === "imports" ? "#4a90e2" :
+                               edge.rel === "calls" ? "#FF7A45" : "#9C27B0"
+                    });
+                }
+            });
+
+            visNetwork.fit();
+        }
+
+        async function selectNode(nodeId) {
+            currentNodeId = nodeId;
+
+            // Update tree highlight
+            document.querySelectorAll(".tree-item.active").forEach(el => el.classList.remove("active"));
+            // (Tree highlighting would be more complex; skipped for brevity)
+
+            // Load and display node details
+            try {
+                const resp = await fetch(`/api/node/${nodeId}`);
+                if (!resp.ok) throw new Error("Node not found");
+                const node = await resp.json();
+                displayNodeDetail(node);
+            } catch (e) {
+                console.error("Failed to load node:", e);
+            }
+        }
+
+        function displayNodeDetail(node) {
+            const pane = document.getElementById("detail-pane");
+            let html = `<div class="node-detail">`;
+            html += `<h3>${node.name} <span style="color: #999; font-size: 12px;">(${ node.type})</span></h3>`;
+
+            if (node.metadata) {
+                if (node.type === "function") {
+                    const args = node.metadata.args || [];
+                    const argStr = args.map(a => `${a.name}: ${a.annotation || "unknown"}`).join(", ");
+                    html += `<pre>Function: ${node.name}\nInputs: ${argStr}\nOutputs: ${node.metadata.returns || "unknown"}</pre>`;
+                }
+                if (node.metadata.docstring) {
+                    html += `<p><strong>Docstring:</strong></p><p>${escapeHtml(node.metadata.docstring)}</p>`;
+                }
+            }
+
+            if (node.summary) {
+                html += `<p>${escapeHtml(node.summary)}</p>`;
+            }
+
+            // Chat box
+            html += `<div class="chat-box">`;
+            html += `<input type="text" id="chat-input" placeholder="Ask about this node...">`;
+            html += `<button onclick="chatAboutNode('${escapeHtml(currentNodeId)}')">Ask</button>`;
+            html += `<div id="chat-response" class="chat-response"></div>`;
+            html += `</div>`;
+
+            html += `</div>`;
+            pane.innerHTML = html;
+        }
+
+        async function chatAboutNode(nodeId) {
+            const input = document.getElementById("chat-input");
+            const question = input.value.trim();
+            if (!question) return;
+
+            const responseDiv = document.getElementById("chat-response");
+            responseDiv.innerHTML = "<p class='loading'>Thinking...</p>";
+
+            try {
+                const resp = await fetch(`/api/chat?question=${encodeURIComponent(question)}`);
+                const reader = resp.body.getReader();
+                let text = "";
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    text += new TextDecoder().decode(value);
+                    responseDiv.innerHTML = escapeHtml(text);
+                    responseDiv.scrollTop = responseDiv.scrollHeight;
+                }
+            } catch (e) {
+                responseDiv.innerHTML = `<p style="color: red;">Error: ${escapeHtml(e.message)}</p>`;
+            }
+        }
+
+        async function summarizeAll() {
+            if (!currentRepo) {
+                alert("Please select a repository first");
+                return;
+            }
+
+            if (!confirm("Summarize all nodes? This may take a while...")) return;
+
+            try {
+                const resp = await fetch("/api/summarize", { method: "POST" });
+                const reader = resp.body.getReader();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const line = new TextDecoder().decode(value).trim();
+                    if (line) {
+                        const msg = JSON.parse(line);
+                        console.log("Progress:", msg);
+                    }
+                }
+                alert("Summarization complete!");
+                // Reload
+                loadRepo(currentRepo);
+            } catch (e) {
+                console.error("Summarization error:", e);
+                alert("Error: " + e.message);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement("div");
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Setup filter toggles
+        ["contains", "imports", "calls", "inherits"].forEach(filter => {
+            document.getElementById(`filter-${filter}`).addEventListener("change", () => {
+                if (currentGraph) renderGraph(currentGraph);
+            });
+        });
+
+        // Setup repo selector
+        document.getElementById("repo-select").addEventListener("change", (e) => {
+            if (e.target.value) {
+                loadRepo(e.target.value);
+            }
+        });
+
+        // Initialize
+        loadRepos();
+    </script>
+</body>
+</html>

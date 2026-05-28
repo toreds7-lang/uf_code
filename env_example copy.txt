@@ -1,0 +1,6 @@
+OPENAI_API_KEY=sk
+LLM_MODEL=gpt-4o-mini
+EMBEDDING_MODEL=text-embedding-3-small
+LLM_BASE_URL=
+EMBEDDING_BASE_URL=
+DATA_DIR=data
