@@ -36,6 +36,7 @@ def main():
     repo_name = repo_path.name
     data_dir = DATA_DIR / repo_name
     data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "source_root.txt").write_text(str(repo_path), encoding="utf-8")
 
     # Step 2: Parse repository (always run, but cached)
     print(f"[run] step 1: parsing repository", file=sys.stderr)
