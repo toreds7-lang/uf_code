@@ -14,6 +14,7 @@ import code_graph
 import code_summary
 import llm_client
 import rag
+import reconstruct
 from config import DATA_DIR, REPO_CLONE_DIR
 
 
@@ -27,6 +28,7 @@ class RepoContext:
     summary_cache: dict[str, dict]
     highlights_cache: dict[str, dict]
     explain_cache: dict[str, str]
+    reconstruct_cache: dict[str, dict]
 
 
 def _load_explain_cache(data_dir: Path) -> dict[str, str]:
@@ -96,6 +98,7 @@ def load_repo_context(repo_name: str) -> RepoContext:
         summary_cache=summary_cache,
         highlights_cache=highlights_cache,
         explain_cache=_load_explain_cache(data_dir),
+        reconstruct_cache=reconstruct.load_cache(data_dir),
     )
 
 
@@ -367,6 +370,54 @@ async def get_report():
     if not report_path.exists():
         raise HTTPException(status_code=404, detail="report.md not found")
     return {"report": report_path.read_text(encoding="utf-8")}
+
+
+@app.get("/api/reconstruction")
+async def get_reconstruction():
+    """Return the reverse-engineering reconstruction blueprint (reconstruction.md)."""
+    _require_context()
+    recon_path = _repo_context.data_dir / "reconstruction.md"
+    if not recon_path.exists():
+        raise HTTPException(status_code=404, detail="reconstruction.md not found — run reconstruct first")
+    return {"reconstruction": recon_path.read_text(encoding="utf-8")}
+
+
+@app.get("/api/reconstruct/node/{node_id:path}")
+async def get_reconstruct_node(node_id: str):
+    """Return the cached reconstruction contract for a single node."""
+    _require_context()
+    entry = _repo_context.reconstruct_cache.get(node_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"No reconstruction spec for node: {node_id}")
+    return entry
+
+
+def _reconstruct_stream(repo_context: RepoContext) -> Iterator[str]:
+    """Run the reconstruction pass and stream a completion line (NDJSON)."""
+    if repo_context.source_root is None:
+        yield json.dumps({
+            "status": "error",
+            "message": "Original source not available on this host; run `run.py <repo> --steps reconstruct` locally.",
+        }) + "\n"
+        return
+
+    cache = reconstruct.reconstruct_all(
+        repo_context.graph, repo_context.source_root, repo_context.data_dir
+    )
+    reconstruct.save_markdown(repo_context.graph, cache, repo_context.data_dir)
+    repo_context.reconstruct_cache = cache
+
+    yield json.dumps({"status": "complete", "nodes_reconstructed": len(cache)}) + "\n"
+
+
+@app.post("/api/reconstruct")
+async def reconstruct_endpoint():
+    """Generate the reverse-engineering reconstruction blueprint for the loaded repo."""
+    _require_context()
+    return StreamingResponse(
+        _reconstruct_stream(_repo_context),
+        media_type="application/x-ndjson",
+    )
 
 
 def _generate_mermaid(graph: dict[str, Any]) -> str:

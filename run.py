@@ -10,6 +10,7 @@ import code_parser
 import code_summary
 import highlights
 import rag
+import reconstruct
 import report
 import repo_loader
 from config import DATA_DIR
@@ -19,7 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze a code repository and generate knowledge graph + summaries.")
     parser.add_argument("source", help="GitHub URL (https://github.com/...) or local path")
     parser.add_argument("--force", action="store_true", help="Force re-clone/re-parse (bypass caches)")
-    parser.add_argument("--steps", default="all", help="Which steps to run (all, parse, summarize, highlights, rag, report)")
+    parser.add_argument("--steps", default="all", help="Which steps to run (all, parse, summarize, highlights, rag, report, reconstruct)")
     parser.add_argument("--filter", default="", help="Filter to specific file/folder (optional)")
 
     args = parser.parse_args()
@@ -53,6 +54,16 @@ def main():
 
     if args.steps in ("parse",):
         print(f"[run] stopping after parse step", file=sys.stderr)
+        return 0
+
+    # Reconstruct-only: source-grounded reverse-engineering blueprint (skips
+    # the describe/highlights/rag passes; needs only the graph + original source).
+    if args.steps == "reconstruct":
+        print(f"[run] step R: reverse-engineering reconstruction blueprint", file=sys.stderr)
+        recon_cache = reconstruct.reconstruct_all(graph, repo_path, data_dir)
+        reconstruct.save_markdown(graph, recon_cache, data_dir)
+        print(f"[run] stopping after reconstruct step", file=sys.stderr)
+        print(f"[run] output directory: {data_dir}", file=sys.stderr)
         return 0
 
     # Step 5: Summarize all nodes (bottom-up)
@@ -107,6 +118,11 @@ def main():
     if summary_tree_path.exists():
         summary_data = json.loads(summary_tree_path.read_text(encoding="utf-8"))
         report.generate_report(summary_data, highlights_cache, data_dir)
+
+    # Step 10: Reverse-engineering reconstruction blueprint (source-grounded)
+    print(f"[run] step 9: reconstruction blueprint", file=sys.stderr)
+    recon_cache = reconstruct.reconstruct_all(graph, repo_path, data_dir)
+    reconstruct.save_markdown(graph, recon_cache, data_dir)
 
     print(f"[run] SUCCESS: analysis complete!", file=sys.stderr)
     print(f"[run] output directory: {data_dir}", file=sys.stderr)

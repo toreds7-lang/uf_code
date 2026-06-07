@@ -93,6 +93,10 @@ def build_graph(repo: RepoGraph, call_graph: dict[str, list[str]]) -> dict[str, 
                 "module": parsed_file.module_name,
                 "language": parsed_file.language,
                 "docstring": parsed_file.docstring,
+                "imports": [
+                    {"module": imp.module, "names": imp.names, "is_from": imp.is_from}
+                    for imp in parsed_file.imports
+                ],
             },
         })
         node_ids.add(file_id)
@@ -123,6 +127,7 @@ def build_graph(repo: RepoGraph, call_graph: dict[str, list[str]]) -> dict[str, 
                     "bases": cls.bases,
                     "docstring": cls.docstring,
                     "lineno": cls.lineno,
+                    "end_lineno": cls.end_lineno,
                 },
             })
             node_ids.add(class_id)
@@ -153,6 +158,7 @@ def build_graph(repo: RepoGraph, call_graph: dict[str, list[str]]) -> dict[str, 
                         "docstring": method.docstring,
                         "decorators": method.decorators,
                         "lineno": method.lineno,
+                        "end_lineno": method.end_lineno,
                     },
                 })
                 node_ids.add(method_id)
@@ -182,6 +188,7 @@ def build_graph(repo: RepoGraph, call_graph: dict[str, list[str]]) -> dict[str, 
                     "docstring": func.docstring,
                     "decorators": func.decorators,
                     "lineno": func.lineno,
+                    "end_lineno": func.end_lineno,
                 },
             })
             node_ids.add(func_id)

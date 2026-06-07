@@ -97,6 +97,20 @@ def summarize_all(
     """Bottom-up summarization of all nodes. Caches incrementally."""
     cache = load_cache(data_dir)
 
+    # Drop previously-failed entries so they are retried. Otherwise a transient
+    # problem (e.g. a prompt file that was missing on an earlier run and has
+    # since been added) stays frozen in the cache forever, since the traversal
+    # below treats any cached node as already done.
+    stale = [
+        nid for nid, entry in cache.items()
+        if isinstance(entry.get("summary"), str) and entry["summary"].startswith("[Error")
+    ]
+    if stale:
+        print(f"[summary] retrying {len(stale)} previously-failed node(s)", file=sys.stderr)
+        for nid in stale:
+            del cache[nid]
+        save_cache(cache, data_dir)
+
     # Build contains-tree for traversal
     node_children: dict[str, list[str]] = {}
     for node in graph.get("nodes", []):

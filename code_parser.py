@@ -39,6 +39,7 @@ class ParsedFunction:
     qualified_name: str
     file_path: str
     lineno: int
+    end_lineno: int | None = None
     args: list[ArgInfo] = field(default_factory=list)
     returns: str | None = None
     docstring: str | None = None
@@ -53,6 +54,7 @@ class ParsedClass:
     name: str
     file_path: str
     lineno: int
+    end_lineno: int | None = None
     bases: list[str] = field(default_factory=list)
     docstring: str | None = None
     methods: list[ParsedFunction] = field(default_factory=list)
@@ -189,6 +191,7 @@ class CodeParser:
             name=node.name,
             file_path=path.name,
             lineno=node.lineno,
+            end_lineno=getattr(node, "end_lineno", None),
             bases=bases,
             docstring=docstring,
             methods=methods,
@@ -239,6 +242,7 @@ class CodeParser:
             qualified_name=qualified_name,
             file_path=path.name,
             lineno=node.lineno,
+            end_lineno=getattr(node, "end_lineno", None),
             args=args,
             returns=returns,
             docstring=docstring,
