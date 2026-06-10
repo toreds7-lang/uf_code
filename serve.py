@@ -227,30 +227,47 @@ def _extract_source_snippet(node: dict, source_root: Path | None, max_lines: int
     lines = full_path.read_text(encoding="utf-8", errors="replace").splitlines()
     lineno = meta.get("lineno")
     start = max(0, int(lineno) - 1) if lineno else 0
+    if node.get("type") == "class":
+        max_lines = max(max_lines, 150)  # capture all fields of attribute-only classes
     return "\n".join(lines[start:start + max_lines])
 
 
 def _explain_node_stream(node: dict, source_snippet: str) -> Iterator[str]:
-    """Stream a code-level explanation for a function/method node."""
+    """Stream a code-level explanation for a function/method/class node."""
     prompt_path = Path(__file__).parent / "prompts" / "func_explain.system.txt"
     system = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else (
-        "Explain how this function works in detail using markdown and bullet points."
+        "Explain how this code works in detail using markdown and bullet points."
     )
 
     meta = node.get("metadata", {})
-    args = meta.get("args", [])
-    arg_strs = [f"{a['name']}: {a.get('annotation', 'unknown')}" for a in args]
-    user = "\n".join(filter(None, [
-        f"Function: {node['name']}",
-        f"Signature: def {node['name']}({', '.join(arg_strs)}) -> {meta.get('returns', 'unknown')}",
-        f"Docstring: {meta['docstring']}" if meta.get("docstring") else None,
-        f"Decorators: {', '.join(meta['decorators'])}" if meta.get("decorators") else None,
-        "",
-        "Source code:",
-        "```python",
-        source_snippet,
-        "```",
-    ]))
+    if node.get("type") == "class":
+        bases = meta.get("bases") or []
+        user = "\n".join(filter(None, [
+            f"Class: {node['name']}" + (f"({', '.join(bases)})" if bases else ""),
+            f"Docstring: {meta['docstring']}" if meta.get("docstring") else None,
+            "",
+            "This class has no methods. Explain its purpose and walk through each "
+            "field/attribute (name, type, default/constraints, and what it represents).",
+            "",
+            "Source code:",
+            "```python",
+            source_snippet,
+            "```",
+        ]))
+    else:
+        args = meta.get("args", [])
+        arg_strs = [f"{a['name']}: {a.get('annotation', 'unknown')}" for a in args]
+        user = "\n".join(filter(None, [
+            f"Function: {node['name']}",
+            f"Signature: def {node['name']}({', '.join(arg_strs)}) -> {meta.get('returns', 'unknown')}",
+            f"Docstring: {meta['docstring']}" if meta.get("docstring") else None,
+            f"Decorators: {', '.join(meta['decorators'])}" if meta.get("decorators") else None,
+            "",
+            "Source code:",
+            "```python",
+            source_snippet,
+            "```",
+        ]))
 
     for token in llm_client.stream_messages([
         {"role": "system", "content": system},
@@ -354,7 +371,20 @@ async def explain_class_endpoint(class_node_id: str):
         if n["id"] in child_ids and n.get("type") in ("function", "method")
     ]
     if not method_nodes:
-        raise HTTPException(status_code=404, detail="No function/method children found for this class")
+        # Attribute-only class (Pydantic model / dataclass / Enum): no methods to
+        # iterate, so explain the class itself — its source contains the fields.
+        def _whole_class_stream() -> Iterator[str]:
+            was_cached = class_node["id"] in _repo_context.explain_cache
+            markdown = "".join(_explain_node_cached(class_node, _repo_context))
+            yield json.dumps({
+                "node_id": class_node["id"],
+                "name": class_node["name"],
+                "cached": was_cached,
+                "markdown": markdown,
+            }) + "\n"
+            yield json.dumps({"status": "complete", "class": class_node["name"]}) + "\n"
+
+        return StreamingResponse(_whole_class_stream(), media_type="application/x-ndjson")
 
     return StreamingResponse(
         _explain_class_stream(class_node, method_nodes, _repo_context),
